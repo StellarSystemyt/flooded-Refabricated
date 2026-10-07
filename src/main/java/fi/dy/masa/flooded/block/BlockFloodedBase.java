@@ -1,64 +1,47 @@
 package fi.dy.masa.flooded.block;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.SoundType;
-import net.minecraft.block.material.Material;
-import net.minecraft.block.state.IBlockState;
-import net.minecraft.creativetab.CreativeTabs;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.loot.LootParams;
+import java.util.List;
 
-public class BlockFloodedBase extends Block
-{
+public class BlockFloodedBase extends Block {
     protected String blockName;
-    protected String[] unlocalizedNames;
     protected boolean enabled = true;
 
-    public BlockFloodedBase(String name, float hardness, float resistance, int harvestLevel, Material material)
-    {
-        super(material);
-
-        this.setHardness(hardness);
-        this.setResistance(resistance);
-        this.setHarvestLevel("pickaxe", harvestLevel);
-        this.setCreativeTab(CreativeTabs.DECORATIONS);
-        this.setSoundType(SoundType.STONE);
+    public BlockFloodedBase(String name, Block.Properties properties) {
+        super(properties);
         this.blockName = name;
-        this.unlocalizedNames = this.generateUnlocalizedNames();
     }
 
-    public String getBlockName()
-    {
+    public String getBlockName() {
         return this.blockName;
     }
 
-    public boolean hasSpecialHitbox()
-    {
+    public boolean hasSpecialHitbox() {
         return false;
     }
 
     @Override
-    public int damageDropped(IBlockState state)
-    {
-        return this.getMetaFromState(state);
+    @Deprecated
+    public List<ItemStack> getDrops(BlockState state, LootParams.Builder builder) {
+        return super.getDrops(state, builder);
     }
 
-    protected String[] generateUnlocalizedNames()
-    {
-        return new String[] { this.blockName };
+    @Override
+    public String getDescriptioId() {
+        return "block.flooded." + this.blockName;
     }
 
-    public String[] getUnlocalizedNames()
-    {
-        return this.unlocalizedNames;
-    }
-
-    public boolean isEnabled()
-    {
+    public boolean isEnabled() {
         return this.enabled;
     }
 
-    public BlockFloodedBase setEnabled(boolean enabled)
-    {
+    public BlockFloodedBase setEnabled(boolean enabled) {
         this.enabled = enabled;
         return this;
     }
+
+
 }
