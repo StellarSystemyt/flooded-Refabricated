@@ -1,15 +1,13 @@
 package fi.dy.masa.flooded.block;
 
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.storage.loot.LootParams;
-import java.util.List;
 
 public class BlockFloodedBase extends Block {
-    protected String blockName;
+    protected final String blockName;
     protected boolean enabled = true;
 
+    // Properties (hardness, resistance, sounds) are safely built and passed via the registry
     public BlockFloodedBase(String name, Block.Properties properties) {
         super(properties);
         this.blockName = name;
@@ -23,14 +21,11 @@ public class BlockFloodedBase extends Block {
         return false;
     }
 
-    @Override
-    @Deprecated
-    public List<ItemStack> getDrops(BlockState state, LootParams.Builder builder) {
-        return super.getDrops(state, builder);
-    }
+    // FIXED: Removed the broken legacy getDrops method override entirely!
+    // Minecraft 1.20.1 reads "src/main/resources/data/flooded/loot_tables/blocks/" JSONs instead.
 
     @Override
-    public String getDescriptioId() {
+    public String getDescriptionId() {
         return "block.flooded." + this.blockName;
     }
 
@@ -42,6 +37,4 @@ public class BlockFloodedBase extends Block {
         this.enabled = enabled;
         return this;
     }
-
-
 }

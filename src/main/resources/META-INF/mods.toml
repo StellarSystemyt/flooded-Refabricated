@@ -1,0 +1,29 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="mod_license=GNU General Public License v3"
+
+[[mods]]
+modId="flooded"
+version="${mod_version}"
+displayName="Flooded"
+displayURL="https://minecraft.curseforge.com/projects/flooded"
+credits="Original mod by masa, updated to 1.20.1 by Luna"
+authors="${mod_authors}"
+
+description='''
+It's raining. The water level is rising...
+'''
+
+[[dependencies.flooded]]
+modId="minecraft"
+mandatory=true
+versionRange="${minecraft_version_range}"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.flooded]]
+modId="forge"
+mandatory=true
+versionRange="${forge_version_range}"
+ordering="NONE"
+side="BOTH"

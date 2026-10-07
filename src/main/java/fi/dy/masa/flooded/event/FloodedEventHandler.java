@@ -1,150 +1,92 @@
 package fi.dy.masa.flooded.event;
 
-import net.minecraft.util.ResourceLocation;
-import net.minecraft.world.World;
-import net.minecraft.world.WorldServer;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraftforge.event.AttachCapabilitiesEvent;
-import net.minecraftforge.event.terraingen.ChunkGeneratorEvent;
-import net.minecraftforge.event.terraingen.PopulateChunkEvent;
-import net.minecraftforge.event.world.ChunkEvent;
-import net.minecraftforge.event.world.WorldEvent;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
-import net.minecraftforge.fml.common.gameevent.TickEvent;
-import net.minecraftforge.fml.common.gameevent.TickEvent.WorldTickEvent;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.LevelEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
 import fi.dy.masa.flooded.capabilities.FloodedCapabilities;
-import fi.dy.masa.flooded.capabilities.FloodedCapabilities.FloodedChunkCapabilityProvider;
 import fi.dy.masa.flooded.capabilities.IFloodedChunkCapability;
 import fi.dy.masa.flooded.config.Configs;
 import fi.dy.masa.flooded.reference.Reference;
 import fi.dy.masa.flooded.util.WaterLevelManager;
 import fi.dy.masa.flooded.util.WorldUtil;
 
-public class FloodedEventHandler
-{
-    private static final ResourceLocation FLOODED_CHUNK_CAP_NAME = new ResourceLocation(Reference.MOD_ID, "chunk_cap");
+@Mod.EventBusSubscriber(modid = Reference.MOD_ID)
+public class FloodedEventHandler {
 
     @SubscribeEvent
-    public void onAttachCapabilitiesChunk(AttachCapabilitiesEvent<Chunk> event)
-    {
-        event.addCapability(FLOODED_CHUNK_CAP_NAME, new FloodedChunkCapabilityProvider());
-    }
-
-    @SubscribeEvent
-    public void onWorldLoad(WorldEvent.Load event)
-    {
-        final int dimension = event.getWorld().provider.getDimension();
-
-        if (event.getWorld().isRemote == false && Configs.enabledInDimension(dimension))
-        {
-            // Initialize the water level if the worlds loads for the first time
-            WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-        }
-    }
-
-    @SubscribeEvent
-    public void onCreateSpawn(WorldEvent.CreateSpawnPosition event)
-    {
-        final int dimension = event.getWorld().provider.getDimension();
-
-        if (event.getWorld().isRemote == false && Configs.enabledInDimension(dimension))
-        {
-            // Initialize the water level if the worlds loads for the first time
-            WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-        }
-    }
-
-    @SubscribeEvent
-    public void onChunkLoad(ChunkEvent.Load event)
-    {
-        final int dimension = event.getWorld().provider.getDimension();
-
-        if (event.getWorld().isRemote == false && Configs.enabledInDimension(dimension))
-        {
-            final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-            Chunk chunk = event.getChunk();
-            WorldUtil.updateWaterLevelInChunk((WorldServer) event.getWorld(), chunk, waterLevel, true);
-        }
-    }
-
-    @SubscribeEvent
-    public void onChunkUnload(ChunkEvent.Unload event)
-    {
-        final int dimension = event.getWorld().provider.getDimension();
-
-        // FIXME this event doesn't fire when stopping the server?
-        if (event.getWorld().isRemote == false && Configs.enabledInDimension(dimension))
-        {
-            Chunk chunk = event.getChunk();
-            int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-            IFloodedChunkCapability cap = chunk.getCapability(FloodedCapabilities.CAPABILITY_FLOODED_CHUNK, null);
-
-            if (cap != null)
-            {
-                cap.setWaterLevel(chunk, waterLevel);
+    public static void onLevelLoad(LevelEvent.Load event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel) {
+            ResourceKey<Level> dimension = serverLevel.dimension();
+            if (Configs.enabledInDimension(dimension)) {
+                WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
             }
         }
     }
 
     @SubscribeEvent
-    public void onReplaceBiomeBlocks(ChunkGeneratorEvent.ReplaceBiomeBlocks event)
-    {
-        if (event.getWorld() != null)
-        {
-            final int dimension = event.getWorld().provider.getDimension();
+    public static void onCreateSpawn(LevelEvent.CreateSpawnPosition event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel) {
+            ResourceKey<Level> dimension = serverLevel.dimension();
+            if (Configs.enabledInDimension(dimension)) {
+                WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
+            }
+        }
+    }
 
-            if (Configs.enabledInDimension(dimension))
-            {
+    @SubscribeEvent
+    public static void onChunkLoad(ChunkEvent.Load event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel && event.getChunk() instanceof LevelChunk chunk) {
+            ResourceKey<Level> dimension = serverLevel.dimension();
+            if (Configs.enabledInDimension(dimension)) {
+                final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
+                if (event.isNewChunk()) {
+                    WorldUtil.fillChunkWithWaterLayer(serverLevel, chunk.getPos().x, chunk.getPos().z, waterLevel);
+                    chunk.getCapability(FloodedCapabilities.CAPABILITY_FLOODED_CHUNK).ifPresent(cap -> {
+                        cap.setWaterLevel(chunk, waterLevel);
+                    });
+                }
+                WorldUtil.updateWaterLevelInChunk(serverLevel, chunk, waterLevel, true);
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChunkUnload(ChunkEvent.Unload event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel && event.getChunk() instanceof LevelChunk chunk) {
+            ResourceKey<Level> dimension = serverLevel.dimension();
+            if (Configs.enabledInDimension(dimension)) {
                 int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-                WorldUtil.fillChunkPrimerWithWater(event.getWorld(), event.getPrimer(), waterLevel, Configs.floodNewChunksUnderground);
+                chunk.getCapability(FloodedCapabilities.CAPABILITY_FLOODED_CHUNK).ifPresent(cap -> {
+                    cap.setWaterLevel(chunk, waterLevel);
+                });
             }
         }
     }
 
     @SubscribeEvent
-    public void onChunkPopulate(PopulateChunkEvent.Post event)
-    {
-        final int dimension = event.getWorld().provider.getDimension();
-
-        if (event.getWorld().isRemote == false && Configs.enabledInDimension(dimension))
-        {
-            int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-            WorldUtil.fillChunkWithWaterLayer((WorldServer) event.getWorld(), event.getChunkX(), event.getChunkZ(), waterLevel);
-
-            Chunk chunk = event.getWorld().getChunkFromChunkCoords(event.getChunkX(), event.getChunkZ());
-            IFloodedChunkCapability cap = chunk.getCapability(FloodedCapabilities.CAPABILITY_FLOODED_CHUNK, null);
-
-            if (cap != null)
-            {
-                cap.setWaterLevel(chunk, waterLevel);
+    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+        if (event.level instanceof ServerLevel serverLevel && event.phase == TickEvent.Phase.END) {
+            ResourceKey<Level> dimension = serverLevel.dimension();
+            if (Configs.enabledInDimension(dimension) && serverLevel.isRaining()) {
+                WorldUtil.onWorldTick(dimension, serverLevel);
             }
         }
     }
 
     @SubscribeEvent
-    public void onWorldTick(WorldTickEvent event)
-    {
-        World world = event.world;
-
-        if (world.isRemote == false && event.phase == TickEvent.Phase.END)
-        {
-            final int dimension = world.provider.getDimension();
-
-            if (Configs.enabledInDimension(dimension) && world.isRaining())
-            {
-                WorldUtil.onWorldTick(dimension, world);
+    public static void onLevelSave(LevelEvent.Save event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel) {
+            // Overworld matching is checked via modern static keys instead of integer 0
+            if (serverLevel.dimension() == Level.OVERWORLD) {
+                WaterLevelManager.INSTANCE.setScheduleCount(WorldUtil.getScheduleCount());
             }
+            WaterLevelManager.INSTANCE.writeToDisk();
         }
-    }
-
-    @SubscribeEvent
-    public void onWorldSave(WorldEvent.Save event)
-    {
-        if (event.getWorld().provider.getDimension() == 0)
-        {
-            WaterLevelManager.INSTANCE.setScheduleCount(WorldUtil.getScheduleCount());
-        }
-
-        WaterLevelManager.INSTANCE.writeToDisk();
     }
 }

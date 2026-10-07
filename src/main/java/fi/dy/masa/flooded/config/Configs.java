@@ -1,149 +1,108 @@
 package fi.dy.masa.flooded.config;
 
-import java.io.File;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
+import net.minecraftforge.common.ForgeConfigSpec;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import net.minecraftforge.common.config.Configuration;
-import net.minecraftforge.common.config.Property;
-import net.minecraftforge.fml.client.event.ConfigChangedEvent.OnConfigChangedEvent;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
-import fi.dy.masa.flooded.Flooded;
-import fi.dy.masa.flooded.block.FloodedBlocks;
-import fi.dy.masa.flooded.reference.Reference;
 
-public class Configs
-{
-    public static final String CATEGORY_GENERIC = "Generic";
+public class Configs {
+    private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+    public static ForgeConfigSpec SPEC;
+    public static ForgeConfigSpec.BooleanValue ENABLE_LOGGING_INFO;
+    public static ForgeConfigSpec.BooleanValue ENABLE_WATER_LAYER_RANDOM_SPREAD;
+    public static ForgeConfigSpec.BooleanValue FLOOD_NEW_CHUNKS_UNDERGROUND;
+    public static ForgeConfigSpec.BooleanValue DIMENSION_LIST_IS_BLACKLIST;
+    public static ForgeConfigSpec.BooleanValue SPREAD_WATER_FULL_CHUNKS_AT_ONCE;
+    public static ForgeConfigSpec.IntValue WATER_LAYER_SEEDING_COUNT;
+    public static ForgeConfigSpec.IntValue WATER_LAYER_SEEDING_INTERVAL;
+    public static ForgeConfigSpec.IntValue WATER_SPREAD_CHUNKS_PER_TICK;
+    public static ForgeConfigSpec.IntValue WATER_SPREAD_SCHEDULE_LIMIT;
+    public static ForgeConfigSpec.IntValue WATER_RISE_INTERVAL;
+    private static ForgeConfigSpec.ConfigValue<List<? extends String>> DIMENSION_LIST;
+    private static final Set<String> DIMENSIONS = new HashSet<>();
 
-    public static String configurationFileName;
-    public static Configuration config;
+    static {
+        BUILDER.push("Generic");
 
-    public static boolean enableLoggingInfo;
-    public static boolean enableWaterLayerRandomSpread;
-    public static boolean floodNewChunksUnderground;
-    public static boolean dimensionListIsBlacklist;
-    public static boolean spreadWaterFullChunksAtOnce;
-    public static int waterLayerSeedingCount;
-    public static int waterLayerSeedingInterval;
-    public static int waterSpreadChunksPerTick;
-    public static int waterSpreadScheduleLimit;
-    public static int waterRiseInterval;
-    private static String dimensionsStr;
-    private static final Set<Integer> DIMENSIONS = new HashSet<>();
+        DIMENSION_LIST = BUILDER
+                .comment("The white- or blacklist of dimensions to affect. Use resource locations. Example: [\"minecraft:overworld\", \"minecraft:the_nether\"]")
+                .defineListAllowEmpty(List.of("dimensionList"), () -> List.of("minecraft:overworld"), o -> o instanceof String);
 
-    @SubscribeEvent
-    public void onConfigChangedEvent(OnConfigChangedEvent event)
-    {
-        if (Reference.MOD_ID.equals(event.getModID()))
-        {
-            loadConfigs(config);
+        DIMENSION_LIST_IS_BLACKLIST = BUILDER
+                .comment("If true, then 'dimensionList' is a blacklist. If false, it's a whitelist.")
+                .define("dimensionListIsBlacklist", false);
+
+        ENABLE_LOGGING_INFO = BUILDER
+                .comment("Enables a bunch of extra (debug) logging on the INFO level")
+                .define("enableLoggingInfo", false);
+
+        ENABLE_WATER_LAYER_RANDOM_SPREAD = BUILDER
+                .comment("If enabled, the water layers will try to spread to adjacent lower positions with random ticks")
+                .define("enableWaterLayerRandomSpread", true);
+
+        FLOOD_NEW_CHUNKS_UNDERGROUND = BUILDER
+                .comment("If enabled, then newly generated chunks will get flooded entirely in every air space that is below the current global water level.")
+                .define("floodNewChunksUnderground", false);
+
+        SPREAD_WATER_FULL_CHUNKS_AT_ONCE = BUILDER
+                .comment("If enabled, then the water level rise is updated full chunks at a time. This might be less laggy.")
+                .define("spreadWaterFullChunksAtOnce", true);
+
+        WATER_SPREAD_CHUNKS_PER_TICK = BUILDER
+                .comment("The number of chunks to spread water in per game tick, if spreadWaterFullChunksAtOnce = true")
+                .defineInRange("waterSpreadChunksPerTick", 10, 1, Integer.MAX_VALUE);
+
+        WATER_SPREAD_SCHEDULE_LIMIT = BUILDER
+                .comment("Maximum number of scheduled updates at once for spreading water layers")
+                .defineInRange("waterSpreadScheduleLimit", 800, 1, Integer.MAX_VALUE);
+
+        WATER_LAYER_SEEDING_COUNT = BUILDER
+                .comment("How many attempts (max created blocks) are made at every water layer seeding attempt")
+                .defineInRange("waterLayerSeedingCount", 20, 1, Integer.MAX_VALUE);
+
+        WATER_LAYER_SEEDING_INTERVAL = BUILDER
+                .comment("The interval in game ticks, how often new water layers are attempted to be created randomly")
+                .defineInRange("waterLayerSeedingInterval", 20, 1, Integer.MAX_VALUE);
+
+        WATER_RISE_INTERVAL = BUILDER
+                .comment("The interval in game ticks, how often the water level should rise by 1/16th of a block")
+                .defineInRange("waterRiseInterval", 400, 1, Integer.MAX_VALUE);
+
+        BUILDER.pop();
+        SPEC = BUILDER.build();
+    }
+
+    public static void register() {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, SPEC);
+    }
+
+    public static void cacheDimensions() {
+        DIMENSIONS.clear();
+        for (String dim : DIMENSION_LIST.get()) {
+            DIMENSIONS.add(dim.trim());
         }
     }
 
-    public static void loadConfigsFromMainConfigFile(File configDirCommon)
-    {
-        File configFile = new File(configDirCommon, Reference.MOD_ID + ".cfg");
-
-        loadConfigsFromFile(configFile);
-    }
-
-    private static void loadConfigsFromFile(File configFile)
-    {
-        configurationFileName = configFile.toString();
-        config = new Configuration(configFile, null, true);
-
-        reloadConfigsFromFile();
-    }
-
-    public static boolean reloadConfigsFromFile()
-    {
-        if (config != null)
-        {
-            Flooded.logger.info("Reloading the main configs from file '{}'", config.getConfigFile().getAbsolutePath());
-            config.load();
-            loadConfigs(config);
-
-            return true;
+    public static boolean enabledInDimension(ResourceKey<Level> dimensionKey) {
+        // Cache data dynamically if the inner array emptied
+        if (DIMENSIONS.isEmpty() && !DIMENSION_LIST.get().isEmpty()) {
+            cacheDimensions();
         }
-
-        return false;
+        String dimName = dimensionKey.location().toString();
+        return DIMENSION_LIST_IS_BLACKLIST.get() != DIMENSIONS.contains(dimName);
     }
 
-    public static void loadConfigs(Configuration conf)
-    {
-        Property prop;
-
-        prop = conf.get(CATEGORY_GENERIC, "dimensionList", "0");
-        prop.setComment("The white- or blacklist of dimensions to affect. Use a comma to separate the IDs. Example: 0,4,9");
-        dimensionsStr = prop.getString();
-
-        prop = conf.get(CATEGORY_GENERIC, "dimensionListIsBlacklist", false);
-        prop.setComment("If true, then 'dimensionList' is a blacklist. If false");
-        dimensionListIsBlacklist = prop.getBoolean();
-
-        prop = conf.get(CATEGORY_GENERIC, "enableLoggingInfo", false);
-        prop.setComment("Enables a bunch of extra (debug) logging on the INFO level");
-        enableLoggingInfo = prop.getBoolean();
-
-        prop = conf.get(CATEGORY_GENERIC, "enableWaterLayerRandomSpread", true).setRequiresWorldRestart(true);
-        prop.setComment("If enabled, the water layers will try to spread to adjacent lower positions with random ticks");
-        enableWaterLayerRandomSpread = prop.getBoolean();
-
-        prop = conf.get(CATEGORY_GENERIC, "floodNewChunksUnderground", false);
-        prop.setComment("If enabled, then newly generated chunks will get flooded entirely in every air\n" +
-                        "space that is below the current global water level.");
-        floodNewChunksUnderground = prop.getBoolean();
-
-        prop = conf.get(CATEGORY_GENERIC, "spreadWaterFullChunksAtOnce", true);
-        prop.setComment("If enabled, then the water level rise is updated full chunks at a time.\n" +
-                        "This might be less laggy and at least it will better \"group the lag spikes together\".");
-        spreadWaterFullChunksAtOnce = prop.getBoolean();
-
-        prop = conf.get(CATEGORY_GENERIC, "waterSpreadChunksPerTick", 10);
-        prop.setComment("The number of chunks to spread water in per game tick, if spreadWaterFullChunksAtOnce = true");
-        waterSpreadChunksPerTick = prop.getInt();
-
-        prop = conf.get(CATEGORY_GENERIC, "waterSpreadScheduleLimit", 800);
-        prop.setComment("Maximum number of scheduled updates at once for spreading water layers");
-        waterSpreadScheduleLimit = prop.getInt();
-
-        prop = conf.get(CATEGORY_GENERIC, "waterLayerSeedingCount", 20);
-        prop.setComment("How many attempts (max created blocks) are made at every water layer seeding attempt");
-        waterLayerSeedingCount = prop.getInt();
-
-        prop = conf.get(CATEGORY_GENERIC, "waterLayerSeedingInterval", 20);
-        prop.setComment("The interval in game ticks, how often new water layers are attempted to be created randomly");
-        waterLayerSeedingInterval = prop.getInt();
-
-        prop = conf.get(CATEGORY_GENERIC, "waterRiseInterval", 400);
-        prop.setComment("The interval in game ticks, how often the water level should rise by 1/16th of a block");
-        waterRiseInterval = prop.getInt();
-
-        if (conf.hasChanged())
-        {
-            conf.save();
-        }
-
-        FloodedBlocks.WATER_LAYER.setTickRandomly(enableWaterLayerRandomSpread);
-
-        try
-        {
-            DIMENSIONS.clear();
-            String[] strs = dimensionsStr.split(",");
-
-            for (String str : strs)
-            {
-                DIMENSIONS.add(Integer.parseInt(str.trim()));
-            }
-        }
-        catch (Exception e)
-        {
-            Flooded.logger.warn("Exception while parsing the dimensionList config value", e);
-        }
-    }
-
-    public static boolean enabledInDimension(int dimension)
-    {
-        return dimensionListIsBlacklist != DIMENSIONS.contains(dimension);
-    }
+    public static boolean enableLoggingInfo() { return ENABLE_LOGGING_INFO.get(); }
+    public static boolean enableWaterLayerRandomSpread() { return ENABLE_WATER_LAYER_RANDOM_SPREAD.get(); }
+    public static boolean floodNewChunksUnderground() { return FLOOD_NEW_CHUNKS_UNDERGROUND.get(); }
+    public static boolean spreadWaterFullChunksAtOnce() { return SPREAD_WATER_FULL_CHUNKS_AT_ONCE.get(); }
+    public static int waterSpreadChunksPerTick() { return WATER_SPREAD_CHUNKS_PER_TICK.get(); }
+    public static int waterSpreadScheduleLimit() { return WATER_SPREAD_SCHEDULE_LIMIT.get(); }
+    public static int waterLayerSeedingCount() { return WATER_LAYER_SEEDING_COUNT.get(); }
+    public static int waterLayerSeedingInterval() { return WATER_LAYER_SEEDING_INTERVAL.get(); }
+    public static int waterRiseInterval() { return WATER_RISE_INTERVAL.get(); }
 }

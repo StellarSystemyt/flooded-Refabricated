@@ -1,87 +1,60 @@
 package fi.dy.masa.flooded.capabilities;
 
-import net.minecraft.nbt.NBTBase;
-import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.util.EnumFacing;
-import net.minecraftforge.common.capabilities.Capability;
-import net.minecraftforge.common.capabilities.CapabilityInject;
-import net.minecraftforge.common.capabilities.CapabilityManager;
-import net.minecraftforge.common.capabilities.ICapabilityProvider;
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraftforge.common.capabilities.*;
 import net.minecraftforge.common.util.INBTSerializable;
+import net.minecraftforge.common.util.LazyOptional;
+import net.minecraftforge.event.AttachCapabilitiesEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import fi.dy.masa.flooded.reference.Reference;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-public class FloodedCapabilities
-{
-    @CapabilityInject(IFloodedChunkCapability.class)
-    public static Capability<IFloodedChunkCapability> CAPABILITY_FLOODED_CHUNK = null;
+@Mod.EventBusSubscriber(modid = Reference.MOD_ID)
+public class FloodedCapabilities {
+    public static final Capability<IFloodedChunkCapability> CAPABILITY_FLOODED_CHUNK =
+            CapabilityManager.get(new CapabilityToken<>() {
+            });
 
-    public static void register()
-    {
-        CapabilityManager.INSTANCE.register(IFloodedChunkCapability.class, new DefaultChunkWaterLevelStorage<>(), () -> new FloodedChunkCapability());
+    @SubscribeEvent
+    public static void registerCaps(RegisterCapabilitiesEvent event) {
+        event.register(IFloodedChunkCapability.class);
     }
 
-    public static class FloodedChunkCapabilityProvider implements ICapabilityProvider, INBTSerializable<NBTBase>
-    {
-        private final IFloodedChunkCapability cap;
-        private static final DefaultChunkWaterLevelStorage<IFloodedChunkCapability> STORAGE = new DefaultChunkWaterLevelStorage<>();
-
-        public FloodedChunkCapabilityProvider()
-        {
-            this.cap = new FloodedChunkCapability();
-        }
-
-        @Override
-        public boolean hasCapability(Capability<?> capability, EnumFacing facing)
-        {
-            return capability == CAPABILITY_FLOODED_CHUNK;
-        }
-
-        @Override
-        public <T> T getCapability(Capability<T> capability, EnumFacing facing)
-        {
-            return capability == CAPABILITY_FLOODED_CHUNK ? CAPABILITY_FLOODED_CHUNK.cast(this.cap) : null;
-        }
-
-        @Override
-        public NBTBase serializeNBT()
-        {
-            return STORAGE.writeNBT(CAPABILITY_FLOODED_CHUNK, this.cap, null);
-        }
-
-        @Override
-        public void deserializeNBT(NBTBase nbt)
-        {
-            STORAGE.readNBT(CAPABILITY_FLOODED_CHUNK, this.cap, null, nbt);
-        }
+    @SubscribeEvent
+    public static void attachChunkCapabilities(AttachCapabilitiesEvent<LevelChunk> event) {
+        event.addCapability(
+        new ResourceLocation(Reference.MOD_ID, "flooded_chunk"),
+                new FloodedChunkCapabilityProvider()
+        );
     }
 
-    private static class DefaultChunkWaterLevelStorage<T extends IFloodedChunkCapability> implements Capability.IStorage<T>
-    {
+    public static class FloodedChunkCapabilityProvider implements ICapabilityProvider, INBTSerializable<Tag> {
+        private final IFloodedChunkCapability cap = new FloodedChunkCapability();
+        private final LazyOptional<IFloodedChunkCapability> optional = LazyOptional.of(() -> this.cap);
+
         @Override
-        public NBTBase writeNBT(Capability<T> capability, T instance, EnumFacing side)
-        {
-            if ((instance instanceof IFloodedChunkCapability) == false)
-            {
-                throw new RuntimeException(instance.getClass().getName() + " does not implement IFloodedChunkCapability");
-            }
+        public @NotNull <T> LazyOptional<T> getCapability(@NotNull Capability<T> capability, @Nullable Direction facing) {
+            return capability == CAPABILITY_FLOODED_CHUNK ? CAPABILITY_FLOODED_CHUNK.orEmpty(capability, optional) : LazyOptional.empty();
+        }
 
-            NBTTagCompound nbt = new NBTTagCompound();
-            IFloodedChunkCapability cap = (IFloodedChunkCapability) instance;
-            nbt.setInteger("WaterLevel", cap.getWaterLevel());
-
+        @Override
+        public Tag serializeNBT() {
+            CompoundTag nbt = new CompoundTag();
+            nbt.putInt("WaterLevel", this.cap.getWaterLevel());
             return nbt;
         }
 
         @Override
-        public void readNBT(Capability<T> capability, T instance, EnumFacing side, NBTBase nbt)
-        {
-            if ((instance instanceof IFloodedChunkCapability) == false)
-            {
-                throw new RuntimeException(instance.getClass().getName() + " does not implement IFloodedChunkCapability");
+        public void deserializeNBT(Tag nbt) {
+            if (nbt instanceof CompoundTag tags) {
+                this.cap.setWaterLevelFromNBT(tags.getInt("WaterLevel"));
             }
-
-            NBTTagCompound tags = (NBTTagCompound) nbt;
-            IFloodedChunkCapability cap = capability.cast(instance);
-            cap.setWaterLevelFromNBT(tags.getInteger("WaterLevel"));
         }
     }
 }
