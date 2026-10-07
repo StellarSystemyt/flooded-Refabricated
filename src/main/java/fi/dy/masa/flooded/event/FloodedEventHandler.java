@@ -46,12 +46,12 @@ public class FloodedEventHandler {
             if (Configs.enabledInDimension(dimension)) {
                 final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
                 if (event.isNewChunk()) {
-                    WorldUtil.fillChunkWithWaterLayer(serverLevel, chunk.getPos().x, chunk.getPos().z, waterLevel);
+                    WorldUtil.fillChunkWithWaterLayer(serverLevel, chunk, waterLevel);
                     chunk.getCapability(FloodedCapabilities.CAPABILITY_FLOODED_CHUNK).ifPresent(cap -> {
                         cap.setWaterLevel(chunk, waterLevel);
                     });
                 }
-                WorldUtil.updateWaterLevelInChunk(serverLevel, chunk, waterLevel, true);
+                WorldUtil.updateWaterLevelInChunk(serverLevel, chunk, waterLevel, false);
             }
         }
     }
