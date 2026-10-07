@@ -21,8 +21,6 @@ public class BlockFloodedBase extends Block {
         return false;
     }
 
-    // FIXED: Removed the broken legacy getDrops method override entirely!
-    // Minecraft 1.20.1 reads "src/main/resources/data/flooded/loot_tables/blocks/" JSONs instead.
 
     @Override
     public String getDescriptionId() {
