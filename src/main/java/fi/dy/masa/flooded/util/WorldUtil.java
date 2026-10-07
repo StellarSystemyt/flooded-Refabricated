@@ -18,6 +18,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.Heightmap;
+
 import java.util.*;
 
 import static net.minecraft.core.Direction.Plane.HORIZONTAL;
@@ -72,7 +75,7 @@ public class WorldUtil {
     private static void updateWaterLevelInLoadedChunks(ServerLevel level, int chunkLimit) {
         ResourceKey<Level> dimension = level.dimension();
         Set<ChunkPos> chunksToUpdate = chunksToUpdateMap.get(dimension);
-        if (chunksToUpdate != null && chunksToUpdate.isEmpty()) {
+        if (chunksToUpdate != null && !chunksToUpdate.isEmpty()) {
             final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
             Iterator<ChunkPos> iter = chunksToUpdate.iterator();
             int count = 0;
@@ -101,14 +104,14 @@ public class WorldUtil {
                 if (cap.getWaterLevel() < waterLevel) {
                     int lastLevel = cap.getWaterLevel();
                     ChunkPos chunkPos = chunk.getPos();
-                    if (((lastLevel & BlockLiquidLayer.LEVEL_BITMASK) != 0)) {
+                    if ((lastLevel & BlockLiquidLayer.LEVEL_BITMASK) != 0) {
                         replaceOldWaterLayer(level, chunkPos.x, chunkPos.z, lastLevel, waterLevel);
                     }
                     if (fillWithWater) {
-                        fillChunkWithWater(level, chunkPos.x, chunkPos.z, waterLevel, false);
+                        fillChunkWithWater(level, chunk, waterLevel, false);
                     }
                     if ((waterLevel & BlockLiquidLayer.LEVEL_BITMASK) != 0) {
-                        fillChunkWithWater(level, chunkPos.x, chunkPos.z, waterLevel, false);
+                        fillChunkWithWaterLayer(level, chunk, waterLevel);
                     }
                     cap.setWaterLevel(chunk, waterLevel);
                 }
@@ -120,7 +123,8 @@ public class WorldUtil {
         BlockState water = Blocks.WATER.defaultBlockState();
         final int waterLevelBlocks = waterLevel >> BlockLiquidLayer.BITMASK_SIZE;
 
-        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos(0, 0, 0);
+
         // NOTE: The ChunkPrimer can only work with block states whose ID fits into a char!
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
@@ -139,22 +143,29 @@ public class WorldUtil {
         }
     }
 
-    private static void fillChunkWithWater(Level level, int chunkX, int chunkZ, int waterLevel, boolean fillUnderGround) {
-        if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) return;
-        LevelChunk chunk = level.getChunk(chunkX, chunkZ);
+    private static void fillChunkWithWater(ServerLevel level, LevelChunk chunk, int waterLevel, boolean fillUnderGround) {
         BlockState water = Blocks.WATER.defaultBlockState();
-        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos();
         final int waterLevelBlocks = waterLevel >> BlockLiquidLayer.BITMASK_SIZE;
-        final int xBase = chunkX << 4;
-        final int zBase = chunkZ << 4;
+        final int minY = level.getMinBuildHeight();
+        final int xBase = chunk.getPos().x << 4;
+        final int zBase = chunk.getPos().z << 4;
+        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos();
 
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-                for (int y = waterLevelBlocks; y >= level.getMinBuildHeight(); y--) {
+                for (int y = waterLevelBlocks; y >= minY; y--) {
                     posMutable.set(xBase + x, y, zBase + z);
                     BlockState state = chunk.getBlockState(posMutable);
                     if (!state.is(Blocks.WATER) && state.canBeReplaced() && level.canSeeSky(posMutable)) {
-                        chunk.setBlockState(posMutable, water, false);
+                        // Directly modifies the chunk section.
+                        // This avoids LevelChunk#setBlockState(), which triggers
+                        // block/fluid interaction logic and can recursively query
+                        // chunk state while a chunk is being loaded.
+                        int sectionIndex = chunk.getSectionIndex(y);
+                        if (sectionIndex >= 0 && sectionIndex < chunk.getSections().length) {
+                            LevelChunkSection section = chunk.getSection(sectionIndex);
+                            section.setBlockState(x, y & 15, z, water);
+                        }
                     } else if (!fillUnderGround) {
                         break;
                     }
@@ -163,29 +174,28 @@ public class WorldUtil {
         }
     }
 
-    public static void fillChunkWithWaterLayer(ServerLevel level, int chunkX, int chunkZ, int waterLevel) {
+    public static void fillChunkWithWaterLayer(ServerLevel level, LevelChunk chunk, int waterLevel) {
         final int layerLevel = waterLevel & BlockLiquidLayer.LEVEL_BITMASK;
 
         if (layerLevel != 0) {
-            LevelChunk chunk = level.getChunk(chunkX, chunkZ);
+            ChunkPos chunkPos = chunk.getPos();
             BlockState layerBase = FloodedBlocks.WATER_LAYER.get().defaultBlockState();
-            BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos();
+            BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos(0, 0, 0);
             BlockState stateLayer = layerBase.setValue(BlockLiquidLayer.LEVEL, layerLevel);
             final int waterLevelBlocks = waterLevel >> BlockLiquidLayer.BITMASK_SIZE;
             final int y = waterLevelBlocks + 1;
-            final int xBase = chunkX << 4;
-            final int zBase = chunkZ << 4;
+            final int xBase = chunkPos.x << 4;
+            final int zBase = chunkPos.z << 4;
 
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     posMutable.set(xBase + x, y, zBase + z);
                     BlockState stateOld = chunk.getBlockState(posMutable);
-                    if ((stateOld.is(FloodedBlocks.WATER_LAYER.get())
-                            && stateLayer.getValue(BlockLiquidLayer.LEVEL) > stateOld.getValue(BlockLiquidLayer.LEVEL)) ||
-                            (canFlowInto(level, posMutable, stateOld, stateLayer) && level.canSeeSky(posMutable))
-                    ) {
+                    boolean canSeeSky = y >= chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+                    if ((stateOld.is(FloodedBlocks.WATER_LAYER.get()) && stateLayer.getValue(BlockLiquidLayer.LEVEL) >
+                            stateOld.getValue(BlockLiquidLayer.LEVEL)) ||
+                            (canFlowInto(level, posMutable, stateOld, stateLayer) && canSeeSky)) {
                         chunk.setBlockState(posMutable, stateLayer, false);
-                        level.sendBlockUpdated(posMutable, stateOld, stateLayer, Block.UPDATE_CLIENTS);
                     }
                 }
             }
@@ -193,33 +203,37 @@ public class WorldUtil {
     }
 
     /**
-     * <b>This should only be called when the water level has risen!</b>
-     * It will replace an old water layer at the given level with either full
-     * regular water blocks or new higher level water layer blocks.
-     * <b>Note:</b> This method doesn't create the new water layer
-     * if it should be at a higher y-level!
-     * @param level
-     * @param chunkX
-     * @param chunkZ
-     * @param oldWaterLevel
-     * @param newWaterLevel
+     * This should only be called when the water level has risen!
+     * It will replace an old water layer at the given level with either
+     * full regular water blocks or new higher level water layer blocks.
+     *
+     * Note: This method doesn't create the new water layer
+     * if it should be at a higher y-level.
      */
     private static void replaceOldWaterLayer(ServerLevel level, int chunkX, int chunkZ, int oldWaterLevel, int newWaterLevel) {
         final int layerLevelOld = oldWaterLevel & BlockLiquidLayer.LEVEL_BITMASK;
 
         if (layerLevelOld != 0) {
-            if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) return;
+            if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) {
+                return;
+            }
+
             LevelChunk chunk = level.getChunk(chunkX, chunkZ);
             BlockState water = Blocks.WATER.defaultBlockState();
             BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos(0, 0, 0);
-            final int waterBlocksLevelOld = (oldWaterLevel >> BlockLiquidLayer.BITMASK_SIZE);
-            final int waterBlocksLevelNew = (newWaterLevel >> BlockLiquidLayer.BITMASK_SIZE);
+
+            final int waterBlocksLevelOld = oldWaterLevel >> BlockLiquidLayer.BITMASK_SIZE;
+
+            final int waterBlocksLevelNew = newWaterLevel >> BlockLiquidLayer.BITMASK_SIZE;
+
             final int layerLevelNew = newWaterLevel & BlockLiquidLayer.LEVEL_BITMASK;
             final int y = waterBlocksLevelOld + 1;
             final int xBase = chunkX << 4;
             final int zBase = chunkZ << 4;
-            BlockState stateNew = waterBlocksLevelNew > waterBlocksLevelOld ?
-                    water : FloodedBlocks.WATER_LAYER.get().defaultBlockState().setValue(BlockLiquidLayer.LEVEL, layerLevelNew);
+
+            BlockState stateNew = waterBlocksLevelNew > waterBlocksLevelOld ? water : FloodedBlocks.WATER_LAYER
+                            .get().defaultBlockState().setValue(BlockLiquidLayer.LEVEL, layerLevelNew);
+
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     posMutable.set(xBase + x, y, zBase + z);
@@ -235,7 +249,6 @@ public class WorldUtil {
     }
 
     private static void seedWaterLayers(ServerLevel level, int waterLevel, int maxBlockCount) {
-        // FIXED: Safely builds a list of loaded chunks near players to avoid the protected access error
         List<LevelChunk> chunks = new ArrayList<>();
 
         level.players().forEach(player -> {
@@ -246,7 +259,7 @@ public class WorldUtil {
                     int tx = playerChunk.x + cx;
                     int tz = playerChunk.z + cz;
                     if (level.getChunkSource().hasChunk(tx, tz)) {
-                        net.minecraft.world.level.chunk.ChunkAccess access = level.getChunkSource().getChunk(tx, tz, net.minecraft.world.level.chunk.ChunkStatus.FULL, false);
+                        ChunkAccess access = level.getChunkSource().getChunk(tx, tz, ChunkStatus.FULL, false);
                         if (access instanceof LevelChunk chunk) {
                             chunks.add(chunk);
                         }
@@ -263,7 +276,7 @@ public class WorldUtil {
                     int tx = spawnChunk.x + cx;
                     int tz = spawnChunk.z + cz;
                     if (level.getChunkSource().hasChunk(tx, tz)) {
-                        net.minecraft.world.level.chunk.ChunkAccess access = level.getChunkSource().getChunk(tx, tz, net.minecraft.world.level.chunk.ChunkStatus.FULL, false);
+                        ChunkAccess access = level.getChunkSource().getChunk(tx, tz, ChunkStatus.FULL, false);
                         if (access instanceof LevelChunk chunk) {
                             chunks.add(chunk);
                         }
@@ -273,8 +286,10 @@ public class WorldUtil {
         }
 
         Collections.shuffle(chunks);
-        if (chunks.isEmpty()) return;
-        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos();
+        if (chunks.isEmpty()) {
+            return;
+        }
+        BlockPos.MutableBlockPos posMutable = new BlockPos.MutableBlockPos(0, 0, 0);
         final int maxPerChunk = net.minecraft.util.Mth.clamp(maxBlockCount / chunks.size(), 1, maxBlockCount);
         final int waterLevelBlocks = waterLevel >> BlockLiquidLayer.BITMASK_SIZE;
         final int layerLevel = waterLevel & BlockLiquidLayer.LEVEL_BITMASK;
@@ -296,11 +311,9 @@ public class WorldUtil {
                         posMutable.setY(y);
                         BlockPos posDown = posMutable.below();
                         if (canFlowInto(level, posMutable, stateOld, stateLayer) && (stateDown.is(Blocks.WATER)
-                                || stateDown.is(FloodedBlocks.WATER_LAYER.get()) || Block.isFaceFull
-                                (stateDown.getCollisionShape
-                                        (level, posDown, net.minecraft.world.phys.shapes.CollisionContext.empty()),
-                                        Direction.UP))
-                        ) {
+                                || stateDown.is(FloodedBlocks.WATER_LAYER.get()) || Block.isFaceFull(
+                                stateDown.getCollisionShape(level, posDown, net.minecraft.world.phys.shapes.CollisionContext.empty()),
+                                Direction.UP))) {
                             level.setBlock(posMutable, stateLayer, 3);
 
                             if (stateDown.is(FloodedBlocks.WATER_LAYER.get())) {
@@ -319,9 +332,7 @@ public class WorldUtil {
         }
     }
 
-
-    public static void trySpreadWaterLayer(Level level, BlockPos pos, BlockState state, boolean decrementScheduleCount)
-    {
+    public static void trySpreadWaterLayer(Level level, BlockPos pos, BlockState state, boolean decrementScheduleCount) {
         // Don't spread while the water level is being risen full chunks at a time,
         // to avoid unnecessary lag/extra updates.
         if (isSpreadingInFullChunks) {
@@ -339,11 +350,8 @@ public class WorldUtil {
             BlockState stateSideDown = level.getBlockState(posSideDown);
             Block blockSideDown = stateSideDown.getBlock();
             if (!level.getBlockState(pos.above()).is(state.getBlock()) && canFlowInto(level, posSide, stateSide, state)
-                    && ((stateSideDown.is(Blocks.WATER) || stateSideDown.is(FloodedBlocks.WATER_LAYER.get())
-                         || Block.isFaceFull(stateSideDown.getCollisionShape(level, posSideDown), Direction.UP)
-                        )
-                    )
-            ) {
+                    && (stateSideDown.is(Blocks.WATER) || stateSideDown.is(FloodedBlocks.WATER_LAYER.get())
+                            || Block.isFaceFull(stateSideDown.getCollisionShape(level, posSideDown), Direction.UP))) {
                 level.setBlock(posSide, state, 3);
                 if (stateSideDown.is(FloodedBlocks.WATER_LAYER.get())) {
                     level.setBlock(posSideDown, Blocks.WATER.defaultBlockState(), 3);
@@ -367,7 +375,7 @@ public class WorldUtil {
         ChunkPos chunkPos = chunk.getPos();
         int xBase = chunkPos.x << 4;
         int zBase = chunkPos.z << 4;
-        BlockPos.MutableBlockPos targetPos = new BlockPos.MutableBlockPos();
+        BlockPos.MutableBlockPos targetPos = new BlockPos.MutableBlockPos(0, 0, 0);
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
                 targetPos.set(xBase + x, level.getSeaLevel(), zBase + z);
@@ -391,8 +399,7 @@ public class WorldUtil {
             }
             if (Configs.spreadWaterFullChunksAtOnce()) {
                 updateWaterLevelInLoadedChunks(level, Configs.waterSpreadChunksPerTick());
-            } else if (!Configs.spreadWaterFullChunksAtOnce() &&
-                    (level.getGameTime() % Configs.waterLayerSeedingInterval()) == 0) {
+            } else if (!Configs.spreadWaterFullChunksAtOnce() && (level.getGameTime() % Configs.waterLayerSeedingInterval()) == 0) {
                 Flooded.logInfo("Water layer seeding attempt, water level = {}", getWaterLevelString(waterLevel));
                 seedWaterLayers(level, waterLevel, Configs.waterLayerSeedingCount());
             }
@@ -400,18 +407,17 @@ public class WorldUtil {
     }
 
     private static boolean canFlowInto(Level level, BlockPos pos, BlockState stateTarget, BlockState stateLayer) {
-        return (!stateTarget.is(stateLayer.getBlock()) || (stateTarget.is(stateLayer.getBlock())
-                                && stateLayer.getValue(BlockLiquidLayer.LEVEL) > stateTarget.getValue(BlockLiquidLayer.LEVEL)))
+        return (!stateTarget.is(stateLayer.getBlock()) || (stateTarget.is(stateLayer.getBlock()) && stateLayer.getValue(
+                BlockLiquidLayer.LEVEL) > stateTarget.getValue(BlockLiquidLayer.LEVEL)))
                 && !stateTarget.is(Blocks.LAVA) && !isBlocked(level, pos, stateTarget);
     }
-
 
     /**
      * This is from vanilla BlockDynamicLiquid...
      */
     private static boolean isBlocked(Level level, BlockPos pos, BlockState stateTarget) {
         Block block = stateTarget.getBlock();
-        if (!(block instanceof net.minecraft.world.level.block.DoorBlock)
+        if (!(block instanceof DoorBlock)
                 && !stateTarget.is(BlockTags.ALL_SIGNS)
                 && !stateTarget.is(Blocks.LADDER)
                 && !stateTarget.is(Blocks.SUGAR_CANE)) {
