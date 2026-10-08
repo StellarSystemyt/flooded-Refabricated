@@ -42,8 +42,6 @@ public class WorldUtil {
         ResourceKey<Level> dimension = level.dimension();
         Set<ChunkPos> chunksToUpdate = chunksToUpdateMap.computeIfAbsent(dimension, k -> new HashSet<>());
         chunksToUpdate.clear();
-        for (int x = -32; x <= 32; x++) {
-            for (int z = -32; z <= 32; z++) {
                 // If you want a more infinite approach, we can grab positions around active players:
                 level.players().forEach(player -> {
                     ChunkPos playerChunk = new ChunkPos(player.blockPosition());
@@ -56,8 +54,6 @@ public class WorldUtil {
                         }
                     }
                 });
-            }
-        }
         if (chunksToUpdate.isEmpty()) {
             ChunkPos spawnChunk = new ChunkPos(level.getSharedSpawnPos());
             for (int cx = -12; cx <= 12; cx++) {
@@ -75,26 +71,28 @@ public class WorldUtil {
     private static void updateWaterLevelInLoadedChunks(ServerLevel level, int chunkLimit) {
         ResourceKey<Level> dimension = level.dimension();
         Set<ChunkPos> chunksToUpdate = chunksToUpdateMap.get(dimension);
-        if (chunksToUpdate != null && !chunksToUpdate.isEmpty()) {
-            final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-            Iterator<ChunkPos> iter = chunksToUpdate.iterator();
-            int count = 0;
-            while (iter.hasNext()) {
-                ChunkPos pos = iter.next();
-                if (level.getChunkSource().hasChunk(pos.x, pos.z)) {
-                    LevelChunk chunk = level.getChunk(pos.x, pos.z);
-                    updateWaterLevelInChunk(level, chunk, waterLevel, false);
-                    count++;
-                }
-                iter.remove();
-                if (count >= chunkLimit) {
-                    break;
-                }
+        if (chunksToUpdate == null || chunksToUpdate.isEmpty()) {
+            isSpreadingInFullChunks = false;
+            return;
+        }
+        final int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
+        Iterator<ChunkPos> iter = chunksToUpdate.iterator();
+        int count = 0;
+        while (iter.hasNext() && count < chunkLimit) {
+            ChunkPos pos = iter.next();
+            iter.remove();
+            if (!level.getChunkSource().hasChunk(pos.x, pos.z)) {
+                continue;
             }
-
-            if (chunksToUpdate.isEmpty()) {
-                isSpreadingInFullChunks = false;
+            LevelChunk chunk = level.getChunk(pos.x, pos.z);
+            if (!chunk.getStatus().isOrAfter(ChunkStatus.FULL)) {
+                continue;
             }
+            updateWaterLevelInChunk(level, chunk, waterLevel, false);
+            count++;
+        }
+        if (chunksToUpdate.isEmpty()) {
+            isSpreadingInFullChunks = false;
         }
     }
 
@@ -134,7 +132,7 @@ public class WorldUtil {
 
                     // checks for Air
                     if (state.isAir()) {
-                        chunkAccess.setBlockState(posMutable, water, false);
+                        chunkAccess.setBlockState(posMutable, water, true);
                     } else if (!fillUnderGround) {
                         break;
                     }
@@ -227,9 +225,9 @@ public class WorldUtil {
             final int waterBlocksLevelNew = newWaterLevel >> BlockLiquidLayer.BITMASK_SIZE;
 
             final int layerLevelNew = newWaterLevel & BlockLiquidLayer.LEVEL_BITMASK;
-            final int y = waterBlocksLevelOld + 1;
-            final int xBase = chunkX << 4;
-            final int zBase = chunkZ << 4;
+            final int y = waterBlocksLevelOld + 0;
+            final int xBase = chunkX << 3;
+            final int zBase = chunkZ << 3;
 
             BlockState stateNew = waterBlocksLevelNew > waterBlocksLevelOld ? water : FloodedBlocks.WATER_LAYER
                             .get().defaultBlockState().setValue(BlockLiquidLayer.LEVEL, layerLevelNew);
@@ -387,22 +385,23 @@ public class WorldUtil {
 
     public static void onWorldTick(final ResourceKey<Level> dimension, final ServerLevel level) {
         int waterLevel = WaterLevelManager.INSTANCE.getWaterLevelInDimension(dimension);
-        if (waterLevel < level.getHeight() * BlockLiquidLayer.DIVISOR) {
-            if ((level.getGameTime() % Configs.waterRiseInterval()) == 0) {
-                waterLevel++;
-                Flooded.logInfo("Water level rising, new level = {}", getWaterLevelString(waterLevel));
-                WaterLevelManager.INSTANCE.setWaterLevelInDimension(dimension, waterLevel);
-                if (Configs.spreadWaterFullChunksAtOnce()) {
-                    Flooded.logInfo("Water layer spreading in full chunks, water level = {}", getWaterLevelString(waterLevel));
-                    storeLoadedChunkLocations(level);
-                }
-            }
+        if (waterLevel >= level.getHeight() * BlockLiquidLayer.DIVISOR) {
+            return;
+        }
+        if ((level.getGameTime() % Configs.waterRiseInterval()) == 0) {
+            waterLevel++;
+            Flooded.logInfo("Water level rising, new level = {}", getWaterLevelString(waterLevel));
+            WaterLevelManager.INSTANCE.setWaterLevelInDimension(dimension, waterLevel);
             if (Configs.spreadWaterFullChunksAtOnce()) {
-                updateWaterLevelInLoadedChunks(level, Configs.waterSpreadChunksPerTick());
-            } else if (!Configs.spreadWaterFullChunksAtOnce() && (level.getGameTime() % Configs.waterLayerSeedingInterval()) == 0) {
-                Flooded.logInfo("Water layer seeding attempt, water level = {}", getWaterLevelString(waterLevel));
-                seedWaterLayers(level, waterLevel, Configs.waterLayerSeedingCount());
+                Flooded.logInfo("Water layer spreading in full chunks, water level = {}", getWaterLevelString(waterLevel));
+                storeLoadedChunkLocations(level);
             }
+        }
+        if (Configs.spreadWaterFullChunksAtOnce()) {
+            updateWaterLevelInLoadedChunks(level, Configs.waterSpreadChunksPerTick());
+        } else if ((level.getGameTime() % Configs.waterLayerSeedingInterval()) == 0) {
+            Flooded.logInfo("Water layer seeding attempt, water level = {}", getWaterLevelString(waterLevel));
+            seedWaterLayers(level, waterLevel, Configs.waterLayerSeedingCount());
         }
     }
 
