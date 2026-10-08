@@ -5,13 +5,13 @@ license="mod_license=GNU General Public License v3"
 [[mods]]
 modId="flooded"
 version="${mod_version}"
-displayName="Flooded"
-displayURL="https://minecraft.curseforge.com/projects/flooded"
-credits="Original mod by masa, updated to 1.20.1 by Luna"
+displayName="Flooded-Refabricated"
+displayURL = "https://modrinth.com/mod/flooded-refabricated"
+credits="Original Flooded mod by masa, updated to 1.20.1 by TheModpackCurator"
 authors="${mod_authors}"
 
 description='''
-It's raining. The water level is rising...
+It's raining. The water level is rising... brought to 1.20.1!!!
 '''
 
 [[dependencies.flooded]]
