@@ -15,7 +15,7 @@ public class FloodedBlocks {
     public static final RegistryObject<BlockLiquidLayer> WATER_LAYER = BLOCKS.register(
             ReferenceNames.NAME_BLOCK_WATER_LAYER,
             () -> new BlockLiquidLayer(ReferenceNames.NAME_BLOCK_WATER_LAYER, Block.Properties.of().noCollission()
-                            .strength(4.0f, 10.0f).sound(SoundType.WET_GRASS).liquid())
+                            .strength(4.0f, 10.0f).sound(SoundType.WET_GRASS).liquid().noOcclusion())
     );
 
     public static void register(IEventBus eventBus) {
