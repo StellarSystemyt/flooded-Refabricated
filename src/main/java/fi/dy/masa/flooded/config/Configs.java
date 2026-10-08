@@ -50,7 +50,7 @@ public class Configs {
 
         SPREAD_WATER_FULL_CHUNKS_AT_ONCE = BUILDER
                 .comment("If enabled, then the water level rise is updated full chunks at a time. This might be less laggy.")
-                .define("spreadWaterFullChunksAtOnce", true);
+                .define("spreadWaterFullChunksAtOnce", false);
 
         WATER_SPREAD_CHUNKS_PER_TICK = BUILDER
                 .comment("The number of chunks to spread water in per game tick, if spreadWaterFullChunksAtOnce = true")
